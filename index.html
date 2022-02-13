@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Multiplayer RPG Mansion</title>
+        <style type="text/css">
+            body {
+                display: grid;
+                grid-template-areas: 'game   game   game  game game'
+                                     'avatar avatar hp    hp   hp  '
+                                     'avatar avatar level i    gp  ';
+                grid-template-rows: 80% 10% 10%;
+                grid-template-columns: 20px 80px;
+                grid-gap: 10px;
+                width: calc(100vw - 40px);
+                height: calc(100vh - 40px);
+                overflow: hidden;
+                margin: 10px;
+                background-color: black;
+            }
+            #inventory-button-outer{
+                grid-area: i;
+            }
+            #inventory-button{
+                background-color: #964B00;
+                height: 50px;
+                width: 50px;
+                position: relative;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+            #game{
+                grid-area: game;
+                position: relative; /* make it parent of the stuff in it */
+                overflow: hidden; /* infinite scrolling map */
+                background-color: white;
+            }
+            #avatar{
+                grid-area: avatar;
+                text-align: center;
+                background-color: white;
+            }
+            #avatar > *{
+                max-width: 100%;
+                max-height: 100%;
+            }
+            #hp{
+                grid-area: hp;
+            }
+            #level{
+                grid-area: level;
+            }
+            #coins{
+                grid-area: gp;
+                color: green;
+                font-family: monospace;
+                font-size: 3em;
+            }
+            #inventory{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: calc(90% - 60px);
+                height: calc(90% - 60px);
+                border-radius: 30px;
+                padding: 30px;
+                background-color: #ffeeee;
+                display: grid;
+                grid-auto-columns: calc(90vw / 6);
+                grid-template-rows: fit-content(5em);
+                grid-auto-rows: calc(90vw / 6);
+            }
+            #inventorylabel{
+                text-align: center;
+                grid-column: 2 / 6; /* Span the entire thing */
+            }
+            #inventoryexit:hover{
+                font-size: 2em;
+            }
+            #inventory-outer{
+                background-color: rgba(0.5, 0.5, 0.5, 0.75);
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 100vw;
+                height: 100vh;
+            }
+            .player{
+                height: 100px;
+                position: relative;
+            }
+            .wall{
+                background-color: brown;
+                position: absolute;
+            }
+            #nameInput{
+                position: absolute;
+                width: 100vw;
+                height: 100vh;
+                background-color: cornflowerblue;
+                padding: 0px;
+                top: 0px;
+                left: 0px;
+                margin: 0px;
+            }
+            #nameInput-inner{
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+        </style>
+    </head>
+    <body>
+        <div id="inventory-button-outer" onclick = "expandInventory()">
+            <button type="button" name="button" id="inventory-button" onclick="expandInventory()"></button>
+        </div>
+        <div id="game">
+
+        </div>
+        <div id="avatar">
+            <img src="/res/playerFace.png" />
+        </div>
+        <div id="hp">
+
+        </div>
+        <div id="level">
+
+        </div>
+        <div id="coins">
+
+        </div>
+        <div id="inventory-outer" style="display: none;">
+            <div id="inventory">
+                <div id="inventoryexit-outer"><span id="inventoryexit" onclick="closeInventory()">X</span></div>
+                <h1 id="inventorylabel">Inventory</h1>
+            </div>
+        </div>
+        <div id="nameInput">
+            <div id="nameInput-inner">
+                <input type="text" id="handleInput">
+
+                </input>
+                <button onclick="start();">Start</button>
+            </div>
+        </div>
+        <!-- This is the companion to my nodejs code, it handles client-side -->
+        <script type="text/javascript">
+            window.url = new URL(window.location);
+            window.fps = 50;
+            window.playing = false;
+
+            class IndexableIOWrapper{
+                constructor(data){
+                    this.indexable = data;
+                    this.index = 0;
+                }
+                read(){
+                    this.index ++;
+                    return this.indexable[this.index - 1];
+                }
+            }
+
+            function expandInventory(){
+                document.getElementById("inventory-outer").style.display="block";
+            }
+            function closeInventory(){
+                document.getElementById("inventory-outer").style.display="none";
+            }
+
+
+            class Game{
+                constructor(){
+                    this.hasId = false;
+                    this.socket = new WebSocket("ws://" + window.url.hostname + ":8070/", "rpgmansion");
+                    this.socket.onopen = (event) => {
+                        this.socket.send(document.getElementById("handleInput").value); // Tell them a new client is ready.
+                    };
+                    this.x = 0;
+                    this.y = 0;
+                    this.walls = [];
+                    this.gridsize = 50; // Default grid size is as always 50. It's comfortable and efficient - what more could I want?
+                    this.socket.onmessage = (message) => {
+                        if (!this.hasId){
+                            this.id = "" + message.data;
+                            console.log(this.id);
+                            this.hasId = true;
+                            this.socket.send("U"); // I want a full update, spare no details!
+                        }
+                        else{
+                            var stuff = new IndexableIOWrapper(message.data.split(" "));
+                            var tok = stuff.read();
+                            while (tok != undefined){
+                                if (tok == "W"){
+                                    var x = stuff.read() - 0; // The "- 0" thing is recommended by Ryleu, a friend of mine, who is making something similar.
+                                    var y = stuff.read() - 0; // I'll try to remember to put his URL here.
+                                    var width = stuff.read() - 0;
+                                    /*
+                                    /$$$$$$$              /$$             /$$     /$$                                           /$$       /$$
+                                   | $$__  $$            | $$            | $$    | $$                                          | $$      | $$
+                                   | $$  \ $$ /$$   /$$ /$$$$$$         /$$$$$$  | $$$$$$$   /$$$$$$        /$$   /$$  /$$$$$$ | $$      | $$$$$$$   /$$$$$$   /$$$$$$   /$$$$$$
+                                   | $$$$$$$/| $$  | $$|_  $$_/        |_  $$_/  | $$__  $$ /$$__  $$      | $$  | $$ /$$__  $$| $$      | $$__  $$ /$$__  $$ /$$__  $$ /$$__  $$
+                                   | $$____/ | $$  | $$  | $$            | $$    | $$  \ $$| $$$$$$$$      | $$  | $$| $$  \__/| $$      | $$  \ $$| $$$$$$$$| $$  \__/| $$$$$$$$
+                                   | $$      | $$  | $$  | $$ /$$        | $$ /$$| $$  | $$| $$_____/      | $$  | $$| $$      | $$      | $$  | $$| $$_____/| $$      | $$_____/
+                                   | $$      |  $$$$$$/  |  $$$$/        |  $$$$/| $$  | $$|  $$$$$$$      |  $$$$$$/| $$      | $$      | $$  | $$|  $$$$$$$| $$      |  $$$$$$$
+                                   |__/       \______/    \___/           \___/  |__/  |__/ \_______/       \______/ |__/      |__/      |__/  |__/ \_______/|__/       \_______/
+                                    */
+                                    var height = stuff.read() - 0;
+                                    this.createWall(x, y, width, height);
+                                }
+                                else if (tok == "GS") { // Grid Size
+                                    this.gridsize = stuff.read();
+                                }
+                                else if (tok == "M"){
+                                    this.x = stuff.read() - 0;
+                                    this.y = stuff.read() - 0;
+                                }
+                                tok = stuff.read();
+                            }
+                        }
+                    }
+                    window.addEventListener("keyup", (event) => {
+                        this.socket.send("K" + event.key);
+                    });
+                    window.addEventListener("keydown", (event) => {
+                        this.socket.send("k" + event.key);
+                    });
+                }
+                run(){
+                    this.socket.send("R");
+                    this.updateDOM();
+                }
+                createWall(x, y, width, height){
+                    var el = document.createElement("div");
+                    document.getElementById("game").appendChild(el);
+                    el.classList.add("wall");
+                    this.walls.push({
+                        x: x * this.gridsize,
+                        y: y * this.gridsize,
+                        width: width * this.gridsize,
+                        height: height * this.gridsize,
+                        game: this,
+                        element: el,
+                        updateDOM: function(){
+                            this.element.style.width = this.width + "px";
+                            this.element.style.height = this.height + "px";
+                            this.element.style.left = this.game.x + this.x + window.innerWidth/2 - this.game.gridsize/2 + "px";
+                            this.element.style.top = this.game.y + this.y + window.innerHeight/2 - this.game.gridsize/2 + "px";
+                        }
+                    });
+                }
+                updateDOM(){
+                    this.walls.forEach((item, i) => {
+                        item.updateDOM();
+                    });
+                }
+            }
+
+            function start(){
+                document.getElementById("nameInput").style.display = "none";
+                if (!playing){
+                    window.playing = true;
+                    window.game = new Game();
+                    setInterval(() => {
+                        game.run();
+                    }, 1000/fps);
+                }
+            }
+        </script>
+    </body>
+</html>
